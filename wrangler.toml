@@ -1,0 +1,16 @@
+name = "dh-clickcollect-worker"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Set these via: wrangler secret put SECRET_NAME
+
+# Required secrets (set via wrangler or CF dashboard):
+# STRIPE_SECRET_KEY
+# STRIPE_WEBHOOK_SECRET
+# TWILIO_SID
+# TWILIO_TOKEN
+# TWILIO_PHONE
+# RESEND_API_KEY          (or use MailChannels — no key needed)
+# SUPABASE_URL
+# SUPABASE_SERVICE_ROLE_KEY
