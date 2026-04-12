@@ -8,7 +8,7 @@ export const msalConfig = {
   auth: {
     clientId: import.meta.env.VITE_MSAL_CLIENT_ID,
     authority: import.meta.env.VITE_MSAL_AUTHORITY,
-    redirectUri: window.location.origin + '/admin',
+    redirectUri: window.location.origin + '/auth.html',
     postLogoutRedirectUri: window.location.origin + '/admin/login'
   },
   cache: {
