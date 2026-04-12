@@ -17,6 +17,10 @@ export default function KitchenView() {
   useEffect(() => {
     if (!restaurant) return
     loadOrders()
+    if (restaurant.impersonatedByAdmin) {
+      const interval = window.setInterval(loadOrders, 10000)
+      return () => window.clearInterval(interval)
+    }
     subscribeToOrders()
     return () => { if (channelRef.current) supabaseRealtime.removeChannel(channelRef.current) }
   }, [restaurant])

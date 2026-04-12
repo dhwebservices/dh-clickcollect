@@ -8,8 +8,6 @@ export default function AdminLogin() {
   const location = useLocation()
   const from = location.state?.from || '/admin'
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -17,15 +15,14 @@ export default function AdminLogin() {
     if (isAdmin) navigate('/admin', { replace: true })
   }, [isAdmin, navigate])
 
-  async function handleSubmit(e) {
-    e.preventDefault()
+  async function handleMicrosoftLogin() {
     setError('')
     setLoading(true)
     try {
-      await signInAdmin(email.trim(), password)
+      await signInAdmin()
       navigate(from, { replace: true })
     } catch (err) {
-      setError(err.message || 'Admin sign in failed')
+      setError(err.message || 'Microsoft sign in failed')
     } finally {
       setLoading(false)
     }
@@ -54,15 +51,15 @@ export default function AdminLogin() {
             DH Click & Collect
           </div>
           <div style={{ color: '#666', fontSize: 13, lineHeight: 1.6, maxWidth: 300 }}>
-            Platform control for restaurant onboarding, Stripe setup, impersonation, order oversight, and commission reporting.
+            Platform control for onboarding restaurants, checking orders, editing payout settings, and impersonating operations safely.
           </div>
         </div>
 
         <div style={{ display: 'grid', gap: 14 }}>
           {[
-            ['Restaurants', 'Manage profiles, status, commission, slots, and payout setup.'],
-            ['Impersonation', 'Open the restaurant workspace or kitchen screen as that venue.'],
-            ['Revenue', 'Track paid orders, gross volume, and platform commission.']
+            ['Restaurants', 'Manage setup, status, commission, hours, and payout details.'],
+            ['Impersonation', 'Open a live restaurant dashboard or kitchen view as that venue.'],
+            ['Revenue', 'Track paid volume and platform commission in one place.']
           ].map(([title, body]) => (
             <div key={title} style={{ border: '1px solid #202020', borderRadius: 10, padding: '14px 16px' }}>
               <div style={{ color: '#fff', fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{title}</div>
@@ -76,7 +73,7 @@ export default function AdminLogin() {
         <div style={{ width: '100%', maxWidth: 420 }}>
           <div style={{ marginBottom: 30 }}>
             <div style={{ color: '#fff', fontSize: 28, fontWeight: 500, marginBottom: 8 }}>Admin sign in</div>
-            <div style={{ color: '#666', fontSize: 14 }}>Use a DH platform admin account that also exists in `platform_admins`.</div>
+            <div style={{ color: '#666', fontSize: 14 }}>Use your DH Microsoft account. Restaurant staff and kitchen users still sign in with email and password.</div>
           </div>
 
           {error && (
@@ -93,48 +90,37 @@ export default function AdminLogin() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 16 }}>
-            <Field label="Admin email">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                style={inputStyle}
-              />
-            </Field>
-
-            <Field label="Password">
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                style={inputStyle}
-              />
-            </Field>
-
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                width: '100%',
-                background: loading ? '#333' : '#C9A84C',
-                color: loading ? '#666' : '#0a0a0a',
-                border: 'none',
-                borderRadius: 8,
-                padding: '14px',
-                fontSize: 15,
-                fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontFamily: "'Outfit', sans-serif"
-              }}
-            >
-              {loading ? 'Signing in...' : 'Open admin panel'}
-            </button>
-          </form>
+          <button
+            type="button"
+            onClick={handleMicrosoftLogin}
+            disabled={loading}
+            style={{
+              width: '100%',
+              background: loading ? '#1a1a1a' : '#fff',
+              color: loading ? '#555' : '#0a0a0a',
+              border: '1px solid #333',
+              borderRadius: 8,
+              padding: '14px',
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+              fontFamily: "'Outfit', sans-serif"
+            }}
+          >
+            {!loading && (
+              <svg width="18" height="18" viewBox="0 0 21 21" fill="none">
+                <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+                <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+              </svg>
+            )}
+            {loading ? 'Opening Microsoft sign in...' : 'Continue with Microsoft'}
+          </button>
 
           <div style={{ marginTop: 22, color: '#666', fontSize: 13 }}>
             Restaurant account? <Link to="/login" style={{ color: '#C9A84C', textDecoration: 'none' }}>Go to restaurant sign in</Link>
@@ -143,26 +129,4 @@ export default function AdminLogin() {
       </div>
     </div>
   )
-}
-
-function Field({ label, children }) {
-  return (
-    <label style={{ display: 'grid', gap: 8 }}>
-      <span style={{ color: '#888', fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>{label}</span>
-      {children}
-    </label>
-  )
-}
-
-const inputStyle = {
-  width: '100%',
-  background: '#111',
-  border: '1px solid #2a2a2a',
-  borderRadius: 8,
-  padding: '13px 14px',
-  color: '#fff',
-  fontSize: 15,
-  outline: 'none',
-  boxSizing: 'border-box',
-  fontFamily: "'Outfit', sans-serif"
 }

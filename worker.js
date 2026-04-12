@@ -10,19 +10,37 @@ export default {
 
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
     }
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders })
     }
 
-    if (request.method !== 'POST') {
-      return new Response('Method not allowed', { status: 405 })
-    }
-
     try {
+      if (url.pathname === '/admin/session') {
+        if (request.method !== 'POST') {
+          return new Response('Method not allowed', { status: 405 })
+        }
+        const admin = await verifyAdminRequest(request, env)
+        return json({ data: admin }, 200, corsHeaders)
+      }
+
+      if (url.pathname === '/admin/query') {
+        if (request.method !== 'POST') {
+          return new Response('Method not allowed', { status: 405 })
+        }
+        await verifyAdminRequest(request, env)
+        const payload = await request.json()
+        const data = await runAdminQuery(payload, env)
+        return json({ data }, 200, corsHeaders)
+      }
+
+      if (request.method !== 'POST') {
+        return new Response('Method not allowed', { status: 405 })
+      }
+
       // ── Create Stripe payment intent ─────────────────────────
       if (url.pathname === '/create-payment-intent') {
         const { amount, currency, restaurant_id } = await request.json()
@@ -249,6 +267,254 @@ async function getRestaurant(env, restaurantId) {
 
   const rows = await res.json()
   return rows[0] || null
+}
+
+async function runAdminQuery(payload, env) {
+  const {
+    operation,
+    table,
+    params = {},
+    data,
+    eq = {},
+    fn,
+    scope = 'platform',
+    impersonationRestaurantId
+  } = payload
+
+  if (operation === 'rpc') {
+    return runAdminRpc(fn, params, env, scope, impersonationRestaurantId)
+  }
+
+  const scoped = applyRestaurantScope({ table, params, data, eq }, scope, impersonationRestaurantId)
+  const url = new URL(`${env.SUPABASE_URL}/rest/v1/${table}`)
+
+  if (operation === 'select') {
+    url.searchParams.set('select', scoped.params.select || '*')
+    if (scoped.params.eq) {
+      Object.entries(scoped.params.eq).forEach(([k, v]) => {
+        url.searchParams.set(k, `eq.${v}`)
+      })
+    }
+    if (scoped.params.filter) {
+      Object.entries(scoped.params.filter).forEach(([k, v]) => {
+        url.searchParams.set(k, v)
+      })
+    }
+    if (scoped.params.order) url.searchParams.set('order', scoped.params.order)
+    if (scoped.params.limit) url.searchParams.set('limit', scoped.params.limit)
+    return supabaseFetch(url.toString(), { method: 'GET' }, env)
+  }
+
+  if (operation === 'insert') {
+    return supabaseFetch(`${env.SUPABASE_URL}/rest/v1/${table}`, {
+      method: 'POST',
+      body: JSON.stringify(scoped.data)
+    }, env)
+  }
+
+  if (operation === 'update') {
+    Object.entries(scoped.eq).forEach(([k, v]) => {
+      url.searchParams.set(k, `eq.${v}`)
+    })
+    return supabaseFetch(url.toString(), {
+      method: 'PATCH',
+      body: JSON.stringify(scoped.data)
+    }, env)
+  }
+
+  if (operation === 'delete') {
+    Object.entries(scoped.eq).forEach(([k, v]) => {
+      url.searchParams.set(k, `eq.${v}`)
+    })
+    return supabaseFetch(url.toString(), { method: 'DELETE' }, env)
+  }
+
+  throw new Error(`Unsupported admin operation: ${operation}`)
+}
+
+async function runAdminRpc(fn, params, env, scope, impersonationRestaurantId) {
+  if (scope === 'restaurant' && impersonationRestaurantId) {
+    if (fn === 'generate_order_number') {
+      params = { ...params, p_restaurant_id: impersonationRestaurantId }
+    }
+    if (fn === 'check_slot_capacity') {
+      params = { ...params, p_restaurant_id: impersonationRestaurantId }
+    }
+  }
+
+  return supabaseFetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    body: JSON.stringify(params || {})
+  }, env)
+}
+
+function applyRestaurantScope(input, scope, impersonationRestaurantId) {
+  if (scope !== 'restaurant' || !impersonationRestaurantId) {
+    return {
+      table: input.table,
+      params: input.params || {},
+      data: input.data,
+      eq: input.eq || {}
+    }
+  }
+
+  const params = { ...(input.params || {}), eq: { ...((input.params || {}).eq || {}) } }
+  const eq = { ...(input.eq || {}) }
+  const data = input.data && typeof input.data === 'object' ? { ...input.data } : input.data
+
+  const restaurantTables = new Set([
+    'restaurants',
+    'restaurant_users',
+    'opening_hours',
+    'collection_slots',
+    'menu_categories',
+    'menu_items',
+    'orders'
+  ])
+
+  if (restaurantTables.has(input.table)) {
+    if (input.table === 'restaurants') {
+      params.eq.id = impersonationRestaurantId
+      if (!eq.id) eq.id = impersonationRestaurantId
+      if (data && !data.id) data.id = impersonationRestaurantId
+    } else {
+      params.eq.restaurant_id = impersonationRestaurantId
+      if (!eq.restaurant_id) eq.restaurant_id = impersonationRestaurantId
+      if (data && !data.restaurant_id) data.restaurant_id = impersonationRestaurantId
+    }
+  }
+
+  return { table: input.table, params, data, eq }
+}
+
+async function supabaseFetch(url, init, env) {
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Prefer': 'return=representation',
+      ...(init.headers || {})
+    }
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || `Supabase request failed: ${res.status}`)
+  }
+
+  if (res.status === 204) return true
+  const body = await res.text()
+  return body ? JSON.parse(body) : true
+}
+
+async function verifyAdminRequest(request, env) {
+  const auth = request.headers.get('authorization') || ''
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null
+
+  if (!token) {
+    throw new Error('Missing admin token')
+  }
+
+  const claims = await verifyMicrosoftJwt(token, env)
+  const email = (claims.preferred_username || claims.upn || '').toLowerCase()
+  const allowedDomain = (env.ENTRA_ALLOWED_DOMAIN || 'dhwebsiteservices.co.uk').toLowerCase()
+
+  if (!email || !email.endsWith(`@${allowedDomain}`)) {
+    throw new Error('Unauthorized admin account')
+  }
+
+  return {
+    email,
+    name: claims.name || email
+  }
+}
+
+async function verifyMicrosoftJwt(token, env) {
+  const [encodedHeader, encodedPayload, encodedSignature] = token.split('.')
+  if (!encodedHeader || !encodedPayload || !encodedSignature) {
+    throw new Error('Invalid token')
+  }
+
+  const header = JSON.parse(base64UrlDecode(encodedHeader))
+  const payload = JSON.parse(base64UrlDecode(encodedPayload))
+  const issuerPrefix = `https://login.microsoftonline.com/${env.ENTRA_TENANT_ID}/v2.0`
+
+  if (payload.aud !== env.ENTRA_CLIENT_ID) {
+    throw new Error('Invalid token audience')
+  }
+  if (!payload.iss || !payload.iss.startsWith(issuerPrefix)) {
+    throw new Error('Invalid token issuer')
+  }
+  if (!payload.exp || payload.exp * 1000 < Date.now()) {
+    throw new Error('Token expired')
+  }
+
+  const keys = await getMicrosoftSigningKeys(env)
+  const jwk = keys.find((item) => item.kid === header.kid)
+  if (!jwk) {
+    throw new Error('Signing key not found')
+  }
+
+  const cryptoKey = await crypto.subtle.importKey(
+    'jwk',
+    {
+      kty: jwk.kty,
+      n: jwk.n,
+      e: jwk.e,
+      alg: jwk.alg || 'RS256',
+      ext: true
+    },
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      hash: 'SHA-256'
+    },
+    false,
+    ['verify']
+  )
+
+  const verified = await crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5',
+    cryptoKey,
+    base64UrlToUint8Array(encodedSignature),
+    new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`)
+  )
+
+  if (!verified) {
+    throw new Error('Invalid token signature')
+  }
+
+  return payload
+}
+
+let microsoftKeyCache = null
+let microsoftKeyCacheExpiry = 0
+
+async function getMicrosoftSigningKeys(env) {
+  if (microsoftKeyCache && Date.now() < microsoftKeyCacheExpiry) {
+    return microsoftKeyCache
+  }
+
+  const res = await fetch(`https://login.microsoftonline.com/${env.ENTRA_TENANT_ID}/discovery/v2.0/keys`)
+  if (!res.ok) {
+    throw new Error('Failed to fetch Microsoft signing keys')
+  }
+
+  const body = await res.json()
+  microsoftKeyCache = body.keys || []
+  microsoftKeyCacheExpiry = Date.now() + 60 * 60 * 1000
+  return microsoftKeyCache
+}
+
+function base64UrlDecode(value) {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+  return atob(padded)
+}
+
+function base64UrlToUint8Array(value) {
+  return Uint8Array.from(base64UrlDecode(value), (char) => char.charCodeAt(0))
 }
 
 // ── Email templates ───────────────────────────────────────────
