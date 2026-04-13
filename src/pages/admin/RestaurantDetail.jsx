@@ -7,13 +7,24 @@ import { useAuth } from '../../contexts/AuthContext'
 export default function RestaurantDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { startImpersonation } = useAuth()
+  const { startImpersonation, adminProfile } = useAuth()
   const [restaurant, setRestaurant] = useState(null)
   const [orders, setOrders] = useState([])
+  const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [accountBusy, setAccountBusy] = useState(false)
   const [error, setError] = useState('')
+  const [accountError, setAccountError] = useState('')
+  const [accountMessage, setAccountMessage] = useState('')
   const [form, setForm] = useState(null)
+  const [accountForm, setAccountForm] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    role: 'manager'
+  })
+  const [passwordForm, setPasswordForm] = useState({})
 
   useEffect(() => {
     load()
@@ -29,15 +40,44 @@ export default function RestaurantDetail() {
           eq: { restaurant_id: id },
           order: 'created_at.desc',
           limit: 10
-        })
+        }),
       ])
       setRestaurant(record)
       setForm(record)
       setOrders(recentOrders)
+      await loadAccounts()
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function adminWorkerFetch(path, init = {}) {
+    const workerUrl = import.meta.env.VITE_WORKER_URL
+    if (!workerUrl) throw new Error('VITE_WORKER_URL is not configured')
+    if (!adminProfile?.token) throw new Error('Admin session missing. Sign in again.')
+
+    const res = await fetch(`${workerUrl}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminProfile.token}`,
+        ...(init.headers || {})
+      }
+    })
+
+    const payload = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(payload.error || payload.message || `Request failed (${res.status})`)
+    return payload.data
+  }
+
+  async function loadAccounts() {
+    try {
+      const rows = await adminWorkerFetch(`/admin/restaurant-users?restaurant_id=${id}`, { method: 'GET' })
+      setAccounts(Array.isArray(rows) ? rows : [])
+    } catch (err) {
+      setAccountError(err.message || 'Could not load restaurant logins')
     }
   }
 
@@ -53,6 +93,54 @@ export default function RestaurantDetail() {
       setError(err.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleCreateAccount(e) {
+    e.preventDefault()
+    setAccountBusy(true)
+    setAccountError('')
+    setAccountMessage('')
+    try {
+      await adminWorkerFetch('/admin/restaurant-users', {
+        method: 'POST',
+        body: JSON.stringify({
+          restaurantId: id,
+          fullName: accountForm.fullName.trim(),
+          email: accountForm.email.trim().toLowerCase(),
+          password: accountForm.password,
+          role: accountForm.role,
+        })
+      })
+      setAccountMessage(`Login created for ${accountForm.email.trim().toLowerCase()}. Share the password securely.`)
+      setAccountForm({ fullName: '', email: '', password: '', role: 'manager' })
+      await loadAccounts()
+    } catch (err) {
+      setAccountError(err.message)
+    } finally {
+      setAccountBusy(false)
+    }
+  }
+
+  async function handleResetPassword(account) {
+    const nextPassword = passwordForm[account.user_id] || ''
+    setAccountBusy(true)
+    setAccountError('')
+    setAccountMessage('')
+    try {
+      await adminWorkerFetch('/admin/restaurant-users/password', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: account.user_id,
+          password: nextPassword,
+        })
+      })
+      setPasswordForm((current) => ({ ...current, [account.user_id]: '' }))
+      setAccountMessage(`Password reset for ${account.email}.`)
+    } catch (err) {
+      setAccountError(err.message)
+    } finally {
+      setAccountBusy(false)
     }
   }
 
@@ -159,6 +247,94 @@ export default function RestaurantDetail() {
             <Metric label="Order page" value={restaurant.slug ? `/order/${restaurant.slug}` : 'Not set'} />
           </div>
 
+          <div style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 12, padding: '20px' }}>
+            <div style={{ color: '#888', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", marginBottom: 16 }}>STAFF LOGIN ACCOUNTS</div>
+            {accountError ? (
+              <div style={errorPanel}>{accountError}</div>
+            ) : null}
+            {accountMessage ? (
+              <div style={successPanel}>{accountMessage}</div>
+            ) : null}
+
+            <form onSubmit={handleCreateAccount} style={{ display: 'grid', gap: 12, marginBottom: 18 }}>
+              <Field label="Full name">
+                <input
+                  value={accountForm.fullName}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                  style={inputStyle}
+                  placeholder="Restaurant manager"
+                />
+              </Field>
+              <Field label="Username / email">
+                <input
+                  value={accountForm.email}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, email: e.target.value }))}
+                  style={inputStyle}
+                  placeholder="manager@restaurant.com"
+                />
+              </Field>
+              <Field label="Temporary password">
+                <input
+                  type="text"
+                  value={accountForm.password}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, password: e.target.value }))}
+                  style={inputStyle}
+                  placeholder="Minimum 10 characters"
+                />
+              </Field>
+              <Field label="Role">
+                <select
+                  value={accountForm.role}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, role: e.target.value }))}
+                  style={inputStyle}
+                >
+                  <option value="manager">manager</option>
+                  <option value="staff">staff</option>
+                  <option value="kitchen">kitchen</option>
+                </select>
+              </Field>
+              <button type="submit" disabled={accountBusy} style={primaryButton}>
+                {accountBusy ? 'Creating...' : 'Create login'}
+              </button>
+            </form>
+
+            <div style={{ display: 'grid', gap: 12 }}>
+              {accounts.length === 0 ? (
+                <div style={{ color: '#666', fontSize: 13 }}>No login accounts linked to this restaurant yet.</div>
+              ) : accounts.map((account) => (
+                <div key={account.id} style={{ border: '1px solid #1e1e1e', borderRadius: 10, padding: 14, display: 'grid', gap: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>{account.full_name || account.email || 'Restaurant user'}</div>
+                      <div style={{ color: '#888', fontSize: 12, marginTop: 4 }}>{account.email || 'No email found'}</div>
+                    </div>
+                    <div style={{ color: '#C9A84C', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{account.role}</div>
+                  </div>
+                  <div style={{ color: '#666', fontSize: 12 }}>
+                    Last sign-in: {account.last_sign_in_at ? new Date(account.last_sign_in_at).toLocaleString() : 'Never'}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <input
+                      type="text"
+                      value={passwordForm[account.user_id] || ''}
+                      onChange={(e) => setPasswordForm((current) => ({ ...current, [account.user_id]: e.target.value }))}
+                      style={{ ...inputStyle, minWidth: 220, flex: '1 1 240px' }}
+                      placeholder="New password"
+                    />
+                    <button
+                      type="button"
+                      disabled={accountBusy || !(passwordForm[account.user_id] || '').trim()}
+                      onClick={() => handleResetPassword(account)}
+                      style={secondaryButton}
+                    >
+                      Reset password
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
             <div style={{ padding: '18px 20px', borderBottom: '1px solid #1e1e1e', color: '#888', fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
               RECENT ORDERS
@@ -239,4 +415,24 @@ const secondaryButton = {
   padding: '12px 14px',
   fontSize: 14,
   cursor: 'pointer'
+}
+
+const errorPanel = {
+  background: 'rgba(220,38,38,0.1)',
+  border: '1px solid rgba(220,38,38,0.3)',
+  color: '#fca5a5',
+  borderRadius: 8,
+  padding: '12px 14px',
+  fontSize: 13,
+  marginBottom: 14
+}
+
+const successPanel = {
+  background: 'rgba(34,197,94,0.1)',
+  border: '1px solid rgba(34,197,94,0.28)',
+  color: '#bbf7d0',
+  borderRadius: 8,
+  padding: '12px 14px',
+  fontSize: 13,
+  marginBottom: 14
 }

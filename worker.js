@@ -7,12 +7,7 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
-
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-    }
+    const corsHeaders = buildCorsHeaders(request)
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders })
@@ -34,6 +29,37 @@ export default {
         await verifyAdminRequest(request, env)
         const payload = await request.json()
         const data = await runAdminQuery(payload, env)
+        return json({ data }, 200, corsHeaders)
+      }
+
+      if (url.pathname === '/admin/restaurant-users') {
+        await verifyAdminRequest(request, env)
+
+        if (request.method === 'GET') {
+          const restaurantId = url.searchParams.get('restaurant_id')
+          if (!restaurantId) {
+            return json({ error: 'Missing restaurant_id' }, 400, corsHeaders)
+          }
+          const data = await listRestaurantUsers(env, restaurantId)
+          return json({ data }, 200, corsHeaders)
+        }
+
+        if (request.method === 'POST') {
+          const payload = await request.json()
+          const data = await createRestaurantUser(env, payload)
+          return json({ data }, 200, corsHeaders)
+        }
+
+        return new Response('Method not allowed', { status: 405 })
+      }
+
+      if (url.pathname === '/admin/restaurant-users/password') {
+        if (request.method !== 'POST') {
+          return new Response('Method not allowed', { status: 405 })
+        }
+        await verifyAdminRequest(request, env)
+        const payload = await request.json()
+        const data = await resetRestaurantUserPassword(env, payload)
         return json({ data }, 200, corsHeaders)
       }
 
@@ -186,6 +212,16 @@ function json(data, status = 200, extraHeaders = {}) {
   })
 }
 
+function buildCorsHeaders(request) {
+  const origin = request.headers.get('origin') || '*'
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Vary': 'Origin',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  }
+}
+
 async function sendSMS(env, { to, body }) {
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`, {
     method: 'POST',
@@ -267,6 +303,146 @@ async function getRestaurant(env, restaurantId) {
 
   const rows = await res.json()
   return rows[0] || null
+}
+
+async function listRestaurantUsers(env, restaurantId) {
+  const memberships = await supabaseFetch(`${env.SUPABASE_URL}/rest/v1/restaurant_users?restaurant_id=eq.${restaurantId}&select=id,restaurant_id,user_id,role,created_at&order=created_at.asc`, {
+    method: 'GET'
+  }, env)
+
+  const rows = await Promise.all((memberships || []).map(async (membership) => {
+    const authUser = await getAuthUserById(env, membership.user_id).catch(() => null)
+    return {
+      ...membership,
+      email: authUser?.email || '',
+      full_name: authUser?.user_metadata?.full_name || authUser?.user_metadata?.name || '',
+      last_sign_in_at: authUser?.last_sign_in_at || null,
+    }
+  }))
+
+  return rows
+}
+
+async function createRestaurantUser(env, payload = {}) {
+  const restaurantId = String(payload.restaurantId || '').trim()
+  const email = String(payload.email || '').trim().toLowerCase()
+  const password = String(payload.password || '')
+  const role = ['manager', 'staff', 'kitchen'].includes(payload.role) ? payload.role : 'manager'
+  const fullName = String(payload.fullName || '').trim()
+
+  if (!restaurantId) throw new Error('Missing restaurant ID')
+  if (!email) throw new Error('Missing email')
+  if (password.length < 10) throw new Error('Password must be at least 10 characters')
+
+  const restaurant = await getRestaurant(env, restaurantId)
+  if (!restaurant) throw new Error('Restaurant not found')
+
+  const authUser = await createAuthUser(env, {
+    email,
+    password,
+    fullName,
+    role,
+    restaurantId,
+  })
+
+  const membershipRows = await supabaseFetch(`${env.SUPABASE_URL}/rest/v1/restaurant_users`, {
+    method: 'POST',
+    body: JSON.stringify({
+      restaurant_id: restaurantId,
+      user_id: authUser.id,
+      role,
+    })
+  }, env)
+
+  const membership = Array.isArray(membershipRows) ? membershipRows[0] : membershipRows
+  return {
+    ...membership,
+    email,
+    full_name: fullName,
+    generated: true,
+  }
+}
+
+async function resetRestaurantUserPassword(env, payload = {}) {
+  const userId = String(payload.userId || '').trim()
+  const password = String(payload.password || '')
+
+  if (!userId) throw new Error('Missing user ID')
+  if (password.length < 10) throw new Error('Password must be at least 10 characters')
+
+  const authUser = await updateAuthUserPassword(env, userId, password)
+  return {
+    user_id: userId,
+    email: authUser?.email || '',
+    ok: true,
+  }
+}
+
+async function createAuthUser(env, { email, password, fullName, role, restaurantId }) {
+  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    },
+    body: JSON.stringify({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: fullName,
+        role,
+        restaurant_id: restaurantId,
+      }
+    })
+  })
+
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(body.msg || body.message || body.error_description || 'Could not create restaurant login')
+  }
+
+  return body.user || body
+}
+
+async function updateAuthUserPassword(env, userId, password) {
+  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    },
+    body: JSON.stringify({
+      password,
+    })
+  })
+
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(body.msg || body.message || body.error_description || 'Could not reset password')
+  }
+
+  return body.user || body
+}
+
+async function getAuthUserById(env, userId) {
+  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    }
+  })
+
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(body.msg || body.message || body.error_description || 'Could not load auth user')
+  }
+
+  return body.user || body
 }
 
 async function runAdminQuery(payload, env) {
