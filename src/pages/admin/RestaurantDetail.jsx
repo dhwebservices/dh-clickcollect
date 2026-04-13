@@ -10,6 +10,7 @@ import {
   Eye,
   KeyRound,
   LockKeyhole,
+  Mail,
   Save,
   Sparkles,
   Store,
@@ -55,6 +56,7 @@ export default function RestaurantDetail() {
     email: '',
     password: '',
     role: 'manager',
+    sendWelcomeEmail: true,
   })
   const [passwordForm, setPasswordForm] = useState({})
 
@@ -144,10 +146,11 @@ export default function RestaurantDetail() {
           email: accountForm.email.trim().toLowerCase(),
           password: accountForm.password,
           role: accountForm.role,
+          sendWelcomeEmail: accountForm.sendWelcomeEmail,
         }),
       })
-      setAccountMessage(`Login created for ${accountForm.email.trim().toLowerCase()}. Share the credentials securely.`)
-      setAccountForm({ fullName: '', email: '', password: '', role: 'manager' })
+      setAccountMessage(`Login created for ${accountForm.email.trim().toLowerCase()}${accountForm.sendWelcomeEmail ? ' and first-setup email sent.' : '.'}`)
+      setAccountForm({ fullName: '', email: '', password: '', role: 'manager', sendWelcomeEmail: true })
       await loadAccounts()
     } catch (err) {
       setAccountError(err.message)
@@ -166,11 +169,36 @@ export default function RestaurantDetail() {
         method: 'POST',
         body: JSON.stringify({
           userId: account.user_id,
+          restaurantId: id,
           password: nextPassword,
         }),
       })
       setPasswordForm((current) => ({ ...current, [account.user_id]: '' }))
       setAccountMessage(`Password reset for ${account.email}.`)
+    } catch (err) {
+      setAccountError(err.message)
+    } finally {
+      setAccountBusy(false)
+    }
+  }
+
+  async function handleResetPasswordAndEmail(account) {
+    const nextPassword = passwordForm[account.user_id] || ''
+    setAccountBusy(true)
+    setAccountError('')
+    setAccountMessage('')
+    try {
+      await adminWorkerFetch('/admin/restaurant-users/password', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: account.user_id,
+          restaurantId: id,
+          password: nextPassword,
+          sendEmail: true,
+        }),
+      })
+      setPasswordForm((current) => ({ ...current, [account.user_id]: '' }))
+      setAccountMessage(`Password reset and setup email sent to ${account.email}.`)
     } catch (err) {
       setAccountError(err.message)
     } finally {
@@ -201,6 +229,28 @@ export default function RestaurantDetail() {
       setAccountMessage(`Credentials copied for ${email}.`)
     } catch {
       setAccountMessage(`Credentials prepared for ${email}. Copy them manually.`)
+    }
+  }
+
+  async function handleSendWelcomeGuide(account, includePassword = false) {
+    const nextPassword = passwordForm[account.user_id] || ''
+    setAccountBusy(true)
+    setAccountError('')
+    setAccountMessage('')
+    try {
+      await adminWorkerFetch('/admin/restaurant-users/welcome', {
+        method: 'POST',
+        body: JSON.stringify({
+          restaurantId: id,
+          userId: account.user_id,
+          password: includePassword ? nextPassword : '',
+        }),
+      })
+      setAccountMessage(`Setup email sent to ${account.email}.`)
+    } catch (err) {
+      setAccountError(err.message)
+    } finally {
+      setAccountBusy(false)
     }
   }
 
@@ -452,6 +502,14 @@ export default function RestaurantDetail() {
                 <div style={{ color: 'var(--admin-text)', fontWeight: 600 }}>{ROLE_LABELS[accountForm.role]}</div>
                 <div style={{ color: 'var(--admin-text-soft)', fontSize: 13 }}>{ROLE_DESCRIPTIONS[accountForm.role]}</div>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--admin-text-soft)', fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={accountForm.sendWelcomeEmail}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, sendWelcomeEmail: e.target.checked }))}
+                />
+                Send first-setup email with portal link and password
+              </label>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <button type="submit" disabled={accountBusy} style={primaryButton}>
                   <UsersRound size={14} />
@@ -505,6 +563,24 @@ export default function RestaurantDetail() {
                       >
                         <KeyRound size={14} />
                         Reset password
+                      </button>
+                      <button
+                        type="button"
+                        disabled={accountBusy}
+                        onClick={() => handleSendWelcomeGuide(account, false)}
+                        style={secondaryButton}
+                      >
+                        <Mail size={14} />
+                        Send guide
+                      </button>
+                      <button
+                        type="button"
+                        disabled={accountBusy || !(passwordForm[account.user_id] || '').trim()}
+                        onClick={() => handleResetPasswordAndEmail(account)}
+                        style={secondaryButton}
+                      >
+                        <Mail size={14} />
+                        Reset + email
                       </button>
                     </div>
                   </div>

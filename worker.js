@@ -63,6 +63,16 @@ export default {
         return json({ data }, 200, corsHeaders)
       }
 
+      if (url.pathname === '/admin/restaurant-users/welcome') {
+        if (request.method !== 'POST') {
+          return new Response('Method not allowed', { status: 405, headers: corsHeaders })
+        }
+        await verifyAdminRequest(request, env)
+        const payload = await request.json()
+        const data = await sendRestaurantWelcomeGuide(env, payload)
+        return json({ data }, 200, corsHeaders)
+      }
+
       if (request.method !== 'POST') {
         return new Response('Method not allowed', { status: 405, headers: corsHeaders })
       }
@@ -266,6 +276,31 @@ async function sendEmail(env, { to, from, subject, html }) {
   })
 }
 
+async function sendRestaurantLoginEmail(env, { restaurant, email, fullName, role, password, mode = 'welcome' }) {
+  if (!email) return false
+
+  await sendEmail(env, {
+    to: email,
+    from: 'orders@dhwebsiteservices.co.uk',
+    subject: restaurantLoginEmailSubject(restaurant, mode),
+    html: restaurantLoginEmail({
+      portalUrl: getRestaurantPortalUrl(env),
+      restaurant,
+      fullName,
+      email,
+      role,
+      password,
+      mode,
+    }),
+  })
+
+  return true
+}
+
+function getRestaurantPortalUrl(env) {
+  return env.RESTAURANT_PORTAL_URL || 'https://ordermgr.dhwebsiteservices.co.uk'
+}
+
 async function verifyStripeSignature(payload, header, secret) {
   if (!header) return false
   const parts = header.split(',').reduce((acc, part) => {
@@ -329,6 +364,7 @@ async function createRestaurantUser(env, payload = {}) {
   const password = String(payload.password || '')
   const role = ['manager', 'staff', 'kitchen'].includes(payload.role) ? payload.role : 'manager'
   const fullName = String(payload.fullName || '').trim()
+  const sendWelcomeEmail = payload.sendWelcomeEmail !== false
 
   if (!restaurantId) throw new Error('Missing restaurant ID')
   if (!email) throw new Error('Missing email')
@@ -355,26 +391,87 @@ async function createRestaurantUser(env, payload = {}) {
   }, env)
 
   const membership = Array.isArray(membershipRows) ? membershipRows[0] : membershipRows
+  let emailed = false
+  if (sendWelcomeEmail) {
+    emailed = await sendRestaurantLoginEmail(env, {
+      restaurant,
+      email,
+      fullName,
+      role,
+      password,
+      mode: 'welcome',
+    })
+  }
   return {
     ...membership,
     email,
     full_name: fullName,
     generated: true,
+    emailed,
   }
 }
 
 async function resetRestaurantUserPassword(env, payload = {}) {
   const userId = String(payload.userId || '').trim()
   const password = String(payload.password || '')
+  const sendEmail = payload.sendEmail === true
+  const restaurantId = String(payload.restaurantId || '').trim()
 
   if (!userId) throw new Error('Missing user ID')
   if (password.length < 10) throw new Error('Password must be at least 10 characters')
 
   const authUser = await updateAuthUserPassword(env, userId, password)
+  let emailed = false
+  if (sendEmail) {
+    if (!restaurantId) throw new Error('Missing restaurant ID')
+    const restaurant = await getRestaurant(env, restaurantId)
+    if (!restaurant) throw new Error('Restaurant not found')
+    emailed = await sendRestaurantLoginEmail(env, {
+      restaurant,
+      email: authUser?.email || '',
+      fullName: authUser?.user_metadata?.full_name || authUser?.user_metadata?.name || '',
+      role: authUser?.user_metadata?.role || 'staff',
+      password,
+      mode: 'reset',
+    })
+  }
   return {
     user_id: userId,
     email: authUser?.email || '',
     ok: true,
+    emailed,
+  }
+}
+
+async function sendRestaurantWelcomeGuide(env, payload = {}) {
+  const restaurantId = String(payload.restaurantId || '').trim()
+  const userId = String(payload.userId || '').trim()
+  const password = String(payload.password || '')
+
+  if (!restaurantId) throw new Error('Missing restaurant ID')
+  if (!userId) throw new Error('Missing user ID')
+
+  const [restaurant, authUser] = await Promise.all([
+    getRestaurant(env, restaurantId),
+    getAuthUserById(env, userId),
+  ])
+
+  if (!restaurant) throw new Error('Restaurant not found')
+  if (!authUser?.email) throw new Error('Restaurant user email not found')
+
+  const emailed = await sendRestaurantLoginEmail(env, {
+    restaurant,
+    email: authUser.email,
+    fullName: authUser?.user_metadata?.full_name || authUser?.user_metadata?.name || '',
+    role: authUser?.user_metadata?.role || 'staff',
+    password,
+    mode: password ? 'reset' : 'guide',
+  })
+
+  return {
+    user_id: userId,
+    email: authUser.email,
+    emailed,
   }
 }
 
@@ -760,4 +857,99 @@ function newOrderEmail(order, restaurant) {
     </div>
   </div>
 </body></html>`
+}
+
+function restaurantLoginEmailSubject(restaurant, mode) {
+  if (mode === 'reset') return `${restaurant.name} portal access updated`
+  if (mode === 'guide') return `${restaurant.name} portal guide`
+  return `${restaurant.name} portal login details`
+}
+
+function restaurantLoginEmail({ portalUrl, restaurant, fullName, email, role, password, mode }) {
+  const roleLabel = {
+    manager: 'Manager access',
+    staff: 'Staff access',
+    kitchen: 'Kitchen access',
+  }[role] || 'Portal access'
+
+  const intro = mode === 'reset'
+    ? 'Your restaurant portal password has been updated.'
+    : mode === 'guide'
+      ? 'Here is your restaurant portal guide and login reference.'
+      : 'Your restaurant portal account is ready.'
+
+  const passwordBlock = password
+    ? `<div style="margin-top:16px;padding:14px 16px;background:#0f0f0f;border:1px solid #262626;border-radius:10px;">
+         <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Temporary password</div>
+         <div style="color:#fff;font-size:18px;font-weight:600;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;">${escapeHtml(password)}</div>
+       </div>`
+    : ''
+
+  return `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+  </head>
+  <body style="margin:0;padding:0;background:#f4f1e8;font-family:Inter,Arial,sans-serif;color:#1d1d1d;">
+    <div style="max-width:640px;margin:32px auto;padding:0 18px;">
+      <div style="background:#111111;color:#f5efe0;border-radius:18px;padding:28px 30px;">
+        <div style="color:#d7b24e;font-size:14px;font-weight:600;margin-bottom:12px;">DH Click & Collect</div>
+        <div style="font-size:30px;line-height:1.1;font-weight:700;margin-bottom:10px;">${escapeHtml(restaurant.name)} portal access</div>
+        <div style="color:#c6c0b1;font-size:15px;line-height:1.6;">${intro}</div>
+      </div>
+
+      <div style="background:#ffffff;border:1px solid #e6dfcf;border-radius:18px;padding:28px 30px;margin-top:16px;">
+        <div style="font-size:16px;font-weight:600;margin-bottom:10px;">Hello ${escapeHtml(fullName || restaurant.name)},</div>
+        <div style="color:#4b4b4b;font-size:15px;line-height:1.7;margin-bottom:18px;">
+          You can use the restaurant portal to view orders, manage day-to-day operations, and access the screens available to your role.
+        </div>
+
+        <div style="display:grid;gap:14px;">
+          <div style="padding:14px 16px;background:#faf7f0;border:1px solid #ece5d6;border-radius:10px;">
+            <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Portal URL</div>
+            <div style="font-size:15px;font-weight:600;"><a href="${portalUrl}" style="color:#1d1d1d;text-decoration:none;">${portalUrl}</a></div>
+          </div>
+          <div style="padding:14px 16px;background:#faf7f0;border:1px solid #ece5d6;border-radius:10px;">
+            <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Username</div>
+            <div style="font-size:15px;font-weight:600;">${escapeHtml(email)}</div>
+          </div>
+          <div style="padding:14px 16px;background:#faf7f0;border:1px solid #ece5d6;border-radius:10px;">
+            <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Access level</div>
+            <div style="font-size:15px;font-weight:600;">${escapeHtml(roleLabel)}</div>
+          </div>
+        </div>
+
+        ${passwordBlock}
+
+        <div style="margin-top:22px;padding:18px;background:#faf7f0;border:1px solid #ece5d6;border-radius:12px;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:8px;">First setup</div>
+          <ol style="margin:0;padding-left:18px;color:#4b4b4b;font-size:14px;line-height:1.7;">
+            <li>Open the portal using the link above.</li>
+            <li>Sign in with your username${password ? ' and temporary password' : ''}.</li>
+            <li>${mode === 'guide' ? 'Confirm you can access the correct workspace for your role.' : 'Change your password after your first successful login if your manager requires it.'}</li>
+            <li>Managers can review orders and reporting. Kitchen users should stay in the kitchen screen.</li>
+          </ol>
+        </div>
+
+        <div style="margin-top:20px;">
+          <a href="${portalUrl}" style="display:inline-block;background:#d7b24e;color:#111111;text-decoration:none;font-weight:700;font-size:14px;padding:12px 18px;border-radius:10px;">Open portal</a>
+        </div>
+
+        <div style="margin-top:22px;color:#6a6a6a;font-size:13px;line-height:1.6;">
+          If you have any issue signing in, contact DH Website Services and we can reset your access.
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
