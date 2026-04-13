@@ -128,7 +128,12 @@ export function AuthProvider({ children }) {
 
   async function signInAdmin() {
     await msalInstance.initialize()
-    const result = await msalInstance.loginPopup(loginRequest)
+    let result
+    try {
+      result = await msalInstance.loginPopup(loginRequest)
+    } catch (error) {
+      throw new Error(error?.message || 'Microsoft sign in failed')
+    }
 
     if (!isAllowedAccount(result.account)) {
       await msalInstance.logoutPopup({ account: result.account })
@@ -148,17 +153,26 @@ export function AuthProvider({ children }) {
 
   async function verifyAdminToken(idToken) {
     const workerUrl = import.meta.env.VITE_WORKER_URL
-    const res = await fetch(`${workerUrl}/admin/session`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`
-      }
-    })
+    if (!workerUrl) {
+      throw new Error('Admin worker URL is not configured. Set VITE_WORKER_URL in Cloudflare Pages.')
+    }
+
+    let res
+    try {
+      res = await fetch(`${workerUrl}/admin/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        }
+      })
+    } catch (error) {
+      throw new Error(`Could not reach admin worker at ${workerUrl}. Check the Worker URL and deployment.`)
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || 'Admin verification failed')
+      throw new Error(err.error || err.message || `Admin verification failed (${res.status})`)
     }
 
     const payload = await res.json()
