@@ -16,7 +16,7 @@ export default {
     try {
       if (url.pathname === '/admin/session') {
         if (request.method !== 'POST') {
-          return new Response('Method not allowed', { status: 405 })
+          return new Response('Method not allowed', { status: 405, headers: corsHeaders })
         }
         const admin = await verifyAdminRequest(request, env)
         return json({ data: admin }, 200, corsHeaders)
@@ -24,7 +24,7 @@ export default {
 
       if (url.pathname === '/admin/query') {
         if (request.method !== 'POST') {
-          return new Response('Method not allowed', { status: 405 })
+          return new Response('Method not allowed', { status: 405, headers: corsHeaders })
         }
         await verifyAdminRequest(request, env)
         const payload = await request.json()
@@ -50,12 +50,12 @@ export default {
           return json({ data }, 200, corsHeaders)
         }
 
-        return new Response('Method not allowed', { status: 405 })
+        return new Response('Method not allowed', { status: 405, headers: corsHeaders })
       }
 
       if (url.pathname === '/admin/restaurant-users/password') {
         if (request.method !== 'POST') {
-          return new Response('Method not allowed', { status: 405 })
+          return new Response('Method not allowed', { status: 405, headers: corsHeaders })
         }
         await verifyAdminRequest(request, env)
         const payload = await request.json()
@@ -64,7 +64,7 @@ export default {
       }
 
       if (request.method !== 'POST') {
-        return new Response('Method not allowed', { status: 405 })
+        return new Response('Method not allowed', { status: 405, headers: corsHeaders })
       }
 
       // ── Create Stripe payment intent ─────────────────────────
@@ -195,7 +195,7 @@ export default {
         return json({ ok: true }, 200, corsHeaders)
       }
 
-      return new Response('Not found', { status: 404 })
+      return new Response('Not found', { status: 404, headers: corsHeaders })
     } catch (err) {
       console.error(err)
       return json({ error: err.message }, 500, corsHeaders)
