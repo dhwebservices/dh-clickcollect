@@ -75,9 +75,9 @@ export default function RestaurantDetail() {
           limit: 20,
         }),
       ])
-      setRestaurant(record)
-      setForm(record)
-      setOrders(recentOrders)
+      setRestaurant(record || null)
+      setForm(record || null)
+      setOrders(Array.isArray(recentOrders) ? recentOrders.filter(Boolean) : [])
       await loadAccounts()
     } catch (err) {
       setError(err.message)
@@ -108,9 +108,10 @@ export default function RestaurantDetail() {
   async function loadAccounts() {
     try {
       const rows = await adminWorkerFetch(`/admin/restaurant-users?restaurant_id=${id}`, { method: 'GET' })
-      setAccounts(Array.isArray(rows) ? rows : [])
+      setAccounts(Array.isArray(rows) ? rows.filter(Boolean) : [])
     } catch (err) {
       setAccountError(err.message || 'Could not load restaurant logins')
+      setAccounts([])
     }
   }
 
@@ -206,27 +207,30 @@ export default function RestaurantDetail() {
   if (loading) return <Loader />
   if (!restaurant || !form) return <div style={{ color: 'var(--admin-danger)' }}>Restaurant not found.</div>
 
-  const paidOrders = orders.filter((order) => order.payment_status === 'paid')
+  const safeOrders = Array.isArray(orders) ? orders.filter(Boolean) : []
+  const safeAccounts = Array.isArray(accounts) ? accounts.filter(Boolean) : []
+  const restaurantStatus = typeof restaurant.status === 'string' ? restaurant.status : 'pending'
+  const paidOrders = safeOrders.filter((order) => order?.payment_status === 'paid')
   const paidRevenue = paidOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0)
-  const todayOrders = orders.filter((order) => isToday(order.created_at))
+  const todayOrders = safeOrders.filter((order) => order?.created_at && isToday(order.created_at))
   const todayRevenue = todayOrders
-    .filter((order) => order.payment_status === 'paid')
+    .filter((order) => order?.payment_status === 'paid')
     .reduce((sum, order) => sum + (Number(order.total) || 0), 0)
-  const nextCollection = orders.find((order) => ['pending', 'accepted', 'ready'].includes(order.status))
-  const statusMeta = STATUS_META[restaurant.status] || { label: restaurant.status || 'Unknown', tone: 'warning' }
+  const nextCollection = safeOrders.find((order) => order?.status && ['pending', 'accepted', 'ready'].includes(order.status))
+  const statusMeta = STATUS_META[restaurantStatus] || { label: restaurantStatus || 'Unknown', tone: 'warning' }
   const checklist = [
     { label: 'Restaurant identity', done: Boolean(form.name && form.slug && form.email) },
     { label: 'Commercial setup', done: Boolean(form.plan && Number(form.commission_rate) >= 0) },
     { label: 'Stripe connection', done: Boolean(form.stripe_account_id) },
-    { label: 'Staff login created', done: accounts.length > 0 },
-    { label: 'Ready to go live', done: restaurant.status === 'active' && accounts.length > 0 },
+    { label: 'Staff login created', done: safeAccounts.length > 0 },
+    { label: 'Ready to go live', done: restaurantStatus === 'active' && safeAccounts.length > 0 },
   ]
   const setupScore = Math.round((checklist.filter((item) => item.done).length / checklist.length) * 100)
 
   const cards = [
     { label: 'Status', value: statusMeta.label, hint: form.plan || 'No plan set', tone: statusMeta.tone },
     { label: 'Today', value: `${todayOrders.length} orders`, hint: `£${todayRevenue.toFixed(2)} paid today`, tone: 'neutral' },
-    { label: 'Staff access', value: `${accounts.length}`, hint: accounts.length ? 'Login accounts linked' : 'No logins yet', tone: accounts.length ? 'success' : 'warning' },
+    { label: 'Staff access', value: `${safeAccounts.length}`, hint: safeAccounts.length ? 'Login accounts linked' : 'No logins yet', tone: safeAccounts.length ? 'success' : 'warning' },
     { label: 'Next action', value: nextCollection ? `#${nextCollection.order_number}` : 'No live orders', hint: nextCollection ? `${nextCollection.status} · ${nextCollection.collection_time}` : 'No collection queue', tone: nextCollection ? 'neutral' : 'warning' },
   ]
 
@@ -466,12 +470,12 @@ export default function RestaurantDetail() {
             </form>
 
             <div style={{ display: 'grid', gap: 12 }}>
-              {accounts.length === 0 ? (
+              {safeAccounts.length === 0 ? (
                 <div style={emptyState}>
                   <LockKeyhole size={18} />
                   <div>No login accounts linked to this restaurant yet.</div>
                 </div>
-              ) : accounts.map((account) => (
+              ) : safeAccounts.map((account) => (
                 <div key={account.id} style={accountCard}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
@@ -517,14 +521,14 @@ export default function RestaurantDetail() {
               </div>
               <div style={{ color: 'var(--admin-text-muted)', fontSize: 13 }}>Paid volume: £{paidRevenue.toFixed(2)}</div>
             </div>
-            {orders.length === 0 ? (
+            {safeOrders.length === 0 ? (
               <div style={emptyState}>
                 <AlertCircle size={18} />
                 <div>No orders yet.</div>
               </div>
             ) : (
               <div style={{ display: 'grid', gap: 10 }}>
-                {orders.slice(0, 8).map((order) => (
+                {safeOrders.slice(0, 8).map((order) => (
                   <div key={order.id} style={orderRow}>
                     <div>
                       <div style={{ color: 'var(--admin-text)', fontSize: 14, fontWeight: 600 }}>#{order.order_number}</div>
@@ -532,7 +536,7 @@ export default function RestaurantDetail() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ color: 'var(--admin-text)', fontSize: 14, fontWeight: 600 }}>£{Number(order.total).toFixed(2)}</div>
-                      <div style={{ color: 'var(--admin-text-muted)', fontSize: 12, marginTop: 4 }}>{order.status}</div>
+                      <div style={{ color: 'var(--admin-text-muted)', fontSize: 12, marginTop: 4 }}>{order.status || 'unknown'}</div>
                     </div>
                   </div>
                 ))}

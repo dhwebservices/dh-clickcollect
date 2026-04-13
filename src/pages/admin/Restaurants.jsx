@@ -22,7 +22,7 @@ export default function Restaurants() {
     setError(null)
     try {
       const rows = await sbGet('restaurants', { order: 'created_at.desc' })
-      setRestaurants(rows)
+      setRestaurants(Array.isArray(rows) ? rows.filter(Boolean) : [])
     } catch (err) {
       setError(err.message)
     } finally {
@@ -47,6 +47,8 @@ export default function Restaurants() {
   }
 
   if (loading) return <Loader />
+
+  const safeRestaurants = Array.isArray(restaurants) ? restaurants.filter(Boolean) : []
 
   return (
     <div>
@@ -85,7 +87,10 @@ export default function Restaurants() {
       )}
 
       <div style={{ display: 'grid', gap: 12 }}>
-        {restaurants.map((restaurant) => (
+        {safeRestaurants.map((restaurant) => {
+          const status = typeof restaurant.status === 'string' ? restaurant.status : 'pending'
+          const plan = restaurant.plan || 'basic'
+          return (
           <div key={restaurant.id} style={{
             background: '#141414',
             border: '1px solid #1e1e1e',
@@ -114,11 +119,11 @@ export default function Restaurants() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={pillStyle}>{restaurant.plan}</span>
+                <span style={pillStyle}>{plan}</span>
                 <select
-                  value={restaurant.status}
+                  value={status}
                   onChange={(e) => updateStatus(restaurant.id, e.target.value)}
-                  style={{ ...selectStyle, color: restaurant.status === 'active' ? '#86efac' : restaurant.status === 'suspended' ? '#fca5a5' : '#fcd34d' }}
+                  style={{ ...selectStyle, color: status === 'active' ? '#86efac' : status === 'suspended' ? '#fca5a5' : '#fcd34d' }}
                 >
                   {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
                 </select>
@@ -147,10 +152,10 @@ export default function Restaurants() {
               </button>
             </div>
           </div>
-        ))}
+        )})}
       </div>
 
-      {restaurants.length === 0 && !loading && (
+      {safeRestaurants.length === 0 && !loading && (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#555', border: '1px dashed #222', borderRadius: 12, marginTop: 18 }}>
           <Store size={40} color="#333" style={{ marginBottom: 12 }} />
           <div>No restaurants yet. Add your first one.</div>
