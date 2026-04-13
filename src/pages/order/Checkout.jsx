@@ -1,12 +1,10 @@
 // src/pages/order/Checkout.jsx
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { sbGet, sbGetOne, sbInsert, sbRpc } from '../../lib/supabase'
 import { ChevronLeft, Clock, User, Phone, Mail, FileText, AlertCircle } from 'lucide-react'
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
 export default function Checkout() {
   const { slug } = useParams()
@@ -29,6 +27,11 @@ export default function Checkout() {
   const subtotal = basket.reduce((s, b) => s + b.price * b.quantity, 0)
   const total = subtotal
   const primary = restaurant?.primary_color || '#C9A84C'
+  const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
+  const stripePromise = useMemo(() => {
+    if (!stripePublishableKey) return null
+    return loadStripe(stripePublishableKey)
+  }, [stripePublishableKey])
 
   useEffect(() => {
     if (!restaurant) { navigate(`/order/${slug}`); return }
@@ -78,6 +81,9 @@ export default function Checkout() {
   async function createPaymentIntent() {
     setError(null)
     try {
+      if (!stripePublishableKey) {
+        throw new Error('Stripe publishable key is not configured.')
+      }
       const res = await fetch(`${import.meta.env.VITE_WORKER_URL}/create-payment-intent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -302,7 +308,7 @@ export default function Checkout() {
         )}
 
         {/* Step 3: Stripe payment */}
-        {step === 3 && clientSecret && (
+        {step === 3 && clientSecret && stripePromise && (
           <div>
             <h2 style={{ color: '#fff', fontSize: 20, fontWeight: 500, margin: '0 0 20px', fontFamily: "'Cormorant Garamond', serif" }}>
               Payment
@@ -333,6 +339,19 @@ export default function Checkout() {
                 slug={slug}
               />
             </Elements>
+          </div>
+        )}
+
+        {step === 3 && clientSecret && !stripePromise && (
+          <div style={{
+            background: 'rgba(239,68,68,0.1)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            color: '#fca5a5',
+            borderRadius: 8,
+            padding: '12px 16px',
+            fontSize: 14
+          }}>
+            Stripe is not configured for this environment. Add `VITE_STRIPE_PUBLISHABLE_KEY` in Cloudflare Pages.
           </div>
         )}
       </div>
