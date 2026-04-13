@@ -281,7 +281,7 @@ async function sendRestaurantLoginEmail(env, { restaurant, email, fullName, role
 
   await sendEmail(env, {
     to: email,
-    from: 'orders@dhwebsiteservices.co.uk',
+    from: getPortalFromEmail(env),
     subject: restaurantLoginEmailSubject(restaurant, mode),
     html: restaurantLoginEmail({
       portalUrl: getRestaurantPortalUrl(env),
@@ -299,6 +299,10 @@ async function sendRestaurantLoginEmail(env, { restaurant, email, fullName, role
 
 function getRestaurantPortalUrl(env) {
   return env.RESTAURANT_PORTAL_URL || 'https://ordermgr.dhwebsiteservices.co.uk'
+}
+
+function getPortalFromEmail(env) {
+  return env.PORTAL_FROM_EMAIL || 'noreply@dhwebsiteservices.co.uk'
 }
 
 async function verifyStripeSignature(payload, header, secret) {
@@ -319,7 +323,7 @@ async function verifyStripeSignature(payload, header, secret) {
 
 async function getRestaurant(env, restaurantId) {
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/restaurants`)
-  url.searchParams.set('select', 'id,status,is_busy,stripe_account_id,commission_rate')
+  url.searchParams.set('select', 'id,name,slug,email,address,status,is_busy,stripe_account_id,commission_rate,primary_color')
   url.searchParams.set('id', `eq.${restaurantId}`)
   url.searchParams.set('limit', '1')
 
@@ -860,9 +864,10 @@ function newOrderEmail(order, restaurant) {
 }
 
 function restaurantLoginEmailSubject(restaurant, mode) {
-  if (mode === 'reset') return `${restaurant.name} portal access updated`
-  if (mode === 'guide') return `${restaurant.name} portal guide`
-  return `${restaurant.name} portal login details`
+  const restaurantName = restaurant?.name || 'Your restaurant'
+  if (mode === 'reset') return `${restaurantName}: your DH Click & Collect login has been updated`
+  if (mode === 'guide') return `${restaurantName}: DH Click & Collect portal guide`
+  return `${restaurantName}: your DH Click & Collect portal access`
 }
 
 function restaurantLoginEmail({ portalUrl, restaurant, fullName, email, role, password, mode }) {
