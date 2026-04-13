@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -203,6 +203,9 @@ export default function RestaurantDetail() {
     }
   }
 
+  if (loading) return <Loader />
+  if (!restaurant || !form) return <div style={{ color: 'var(--admin-danger)' }}>Restaurant not found.</div>
+
   const paidOrders = orders.filter((order) => order.payment_status === 'paid')
   const paidRevenue = paidOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0)
   const todayOrders = orders.filter((order) => isToday(order.created_at))
@@ -220,15 +223,12 @@ export default function RestaurantDetail() {
   ]
   const setupScore = Math.round((checklist.filter((item) => item.done).length / checklist.length) * 100)
 
-  const cards = useMemo(() => ([
+  const cards = [
     { label: 'Status', value: statusMeta.label, hint: form.plan || 'No plan set', tone: statusMeta.tone },
     { label: 'Today', value: `${todayOrders.length} orders`, hint: `£${todayRevenue.toFixed(2)} paid today`, tone: 'neutral' },
     { label: 'Staff access', value: `${accounts.length}`, hint: accounts.length ? 'Login accounts linked' : 'No logins yet', tone: accounts.length ? 'success' : 'warning' },
     { label: 'Next action', value: nextCollection ? `#${nextCollection.order_number}` : 'No live orders', hint: nextCollection ? `${nextCollection.status} · ${nextCollection.collection_time}` : 'No collection queue', tone: nextCollection ? 'neutral' : 'warning' },
-  ]), [accounts.length, form.plan, nextCollection, statusMeta.label, statusMeta.tone, todayOrders.length, todayRevenue])
-
-  if (loading) return <Loader />
-  if (!restaurant || !form) return <div style={{ color: 'var(--admin-danger)' }}>Restaurant not found.</div>
+  ]
 
   return (
     <div style={{ display: 'grid', gap: 24 }}>
