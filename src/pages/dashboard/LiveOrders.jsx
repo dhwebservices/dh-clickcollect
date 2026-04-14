@@ -104,10 +104,33 @@ export default function LiveOrders() {
   async function updateOrderStatus(orderId, status) {
     try {
       await sbUpdate('orders', { id: orderId }, { status })
+      const updatedOrder = orders.find((order) => order.id === orderId)
+      const nextOrder = updatedOrder ? { ...updatedOrder, status } : null
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o))
+      if (nextOrder && ['accepted', 'ready', 'rejected', 'collected'].includes(status)) {
+        sendStatusNotification(nextOrder)
+      }
     } catch (err) {
       alert('Failed to update order: ' + err.message)
     }
+  }
+
+  function sendStatusNotification(order) {
+    if (!import.meta.env.VITE_WORKER_URL) return
+    fetch(`${import.meta.env.VITE_WORKER_URL}/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'order_status_update',
+        order,
+        restaurant,
+        customer: {
+          name: order.customer_name,
+          email: order.customer_email,
+          phone: order.customer_phone,
+        },
+      }),
+    }).catch(() => {})
   }
 
   async function toggleBusy() {

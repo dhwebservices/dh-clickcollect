@@ -82,6 +82,8 @@ export default function KitchenView() {
   async function markReady(id) {
     try {
       await sbUpdate('orders', { id }, { status: 'ready' })
+      const order = orders.find((item) => item.id === id)
+      if (order) sendStatusNotification({ ...order, status: 'ready' })
       setOrders(prev => prev.filter(o => o.id !== id))
     } catch (err) { console.error(err) }
   }
@@ -89,8 +91,28 @@ export default function KitchenView() {
   async function acceptOrder(id) {
     try {
       await sbUpdate('orders', { id }, { status: 'accepted' })
+      const order = orders.find((item) => item.id === id)
+      if (order) sendStatusNotification({ ...order, status: 'accepted' })
       setOrders(prev => prev.map(o => o.id === id ? { ...o, status: 'accepted' } : o))
     } catch (err) { console.error(err) }
+  }
+
+  function sendStatusNotification(order) {
+    if (!import.meta.env.VITE_WORKER_URL) return
+    fetch(`${import.meta.env.VITE_WORKER_URL}/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'order_status_update',
+        order,
+        restaurant,
+        customer: {
+          name: order.customer_name,
+          email: order.customer_email,
+          phone: order.customer_phone,
+        },
+      }),
+    }).catch(() => {})
   }
 
   function toggleFullscreen() {

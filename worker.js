@@ -201,6 +201,24 @@ export default {
           }))
         }
 
+        if (type === 'order_status_update') {
+          if (customer?.email) {
+            tasks.push(sendEmail(env, {
+              to: customer.email,
+              from: 'orders@dhwebsiteservices.co.uk',
+              subject: orderStatusEmailSubject(order, restaurant),
+              html: orderStatusEmail(order, restaurant, customer)
+            }))
+          }
+
+          if (customer?.phone && env.TWILIO_SID && env.TWILIO_TOKEN) {
+            tasks.push(sendSMS(env, {
+              to: customer.phone,
+              body: orderStatusSms(order, restaurant)
+            }))
+          }
+        }
+
         await Promise.allSettled(tasks)
         return json({ ok: true }, 200, corsHeaders)
       }
@@ -858,6 +876,90 @@ function newOrderEmail(order, restaurant) {
       <div style="color:#aaa;font-size:14px;margin-bottom:16px;line-height:1.8;">${itemList}</div>
       <div style="color:#C9A84C;font-size:18px;font-weight:600;">Total: £${Number(order.total).toFixed(2)}</div>
       ${order.notes ? `<div style="margin-top:12px;padding:10px;background:#1a1a1a;border-radius:6px;color:#888;font-size:13px;">Note: ${order.notes}</div>` : ''}
+    </div>
+  </div>
+</body></html>`
+}
+
+function orderStatusEmailSubject(order, restaurant) {
+  if (order.status === 'accepted') return `${restaurant.name} accepted your order #${order.order_number}`
+  if (order.status === 'ready') return `${restaurant.name} order #${order.order_number} is ready for collection`
+  if (order.status === 'rejected') return `${restaurant.name} could not accept order #${order.order_number}`
+  if (order.status === 'collected') return `${restaurant.name} marked order #${order.order_number} as collected`
+  return `${restaurant.name} order #${order.order_number} update`
+}
+
+function orderStatusSms(order, restaurant) {
+  if (order.status === 'accepted') {
+    return `Your order #${order.order_number} at ${restaurant.name} has been accepted. Collection time: ${order.collection_time}.`
+  }
+  if (order.status === 'ready') {
+    return `Your order #${order.order_number} at ${restaurant.name} is ready for collection now.`
+  }
+  if (order.status === 'rejected') {
+    return `Your order #${order.order_number} at ${restaurant.name} could not be accepted. Please contact the restaurant.`
+  }
+  if (order.status === 'collected') {
+    return `Order #${order.order_number} at ${restaurant.name} has been marked as collected.`
+  }
+  return `Your order #${order.order_number} at ${restaurant.name} has been updated.`
+}
+
+function orderStatusEmail(order, restaurant, customer) {
+  const statusCopy = {
+    accepted: {
+      title: 'Order accepted',
+      message: 'The restaurant has accepted your order and it is now being prepared.',
+      accent: '#3b82f6',
+    },
+    ready: {
+      title: 'Ready for collection',
+      message: 'Your order is ready. You can now head over and collect it.',
+      accent: '#22c55e',
+    },
+    rejected: {
+      title: 'Order update',
+      message: 'The restaurant could not accept your order. Please contact them directly if payment or replacement is needed.',
+      accent: '#ef4444',
+    },
+    collected: {
+      title: 'Order collected',
+      message: 'This order has been marked as collected.',
+      accent: '#666666',
+    },
+  }[order.status] || {
+    title: 'Order update',
+    message: 'There has been an update to your order.',
+    accent: '#C9A84C',
+  }
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#0a0a0a;font-family:'Helvetica Neue',sans-serif;">
+  <div style="max-width:520px;margin:40px auto;padding:0 20px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:24px;font-weight:600;color:${restaurant.primary_color || '#C9A84C'};margin-bottom:4px;">${restaurant.name}</div>
+      <div style="color:#555;font-size:13px;">Order status update</div>
+    </div>
+    <div style="background:#141414;border:1px solid #222;border-radius:12px;padding:28px;">
+      <div style="text-align:center;margin-bottom:24px;">
+        <div style="width:56px;height:56px;background:${statusCopy.accent}20;border:2px solid ${statusCopy.accent}50;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
+          <div style="width:12px;height:12px;border-radius:50%;background:${statusCopy.accent};"></div>
+        </div>
+        <div style="color:#fff;font-size:20px;font-weight:600;margin-bottom:4px;">${statusCopy.title}</div>
+        <div style="color:#666;font-size:14px;">Hi ${customer.name || 'there'}, ${statusCopy.message}</div>
+      </div>
+      <div style="background:#0f0f0f;border-radius:8px;padding:16px;margin-bottom:20px;display:flex;justify-content:space-between;">
+        <div>
+          <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Order number</div>
+          <div style="color:${restaurant.primary_color || '#C9A84C'};font-size:20px;font-weight:700;font-family:monospace;">#${order.order_number}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Collection time</div>
+          <div style="color:#fff;font-size:18px;font-weight:600;">${order.collection_time || 'TBC'}</div>
+        </div>
+      </div>
+      ${restaurant.address ? `<div style="padding:12px;background:#0f0f0f;border-radius:8px;color:#888;font-size:13px;">📍 ${restaurant.address}</div>` : ''}
     </div>
   </div>
 </body></html>`
