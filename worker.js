@@ -816,52 +816,64 @@ function base64UrlToUint8Array(value) {
 
 function orderConfirmationEmail(order, restaurant, customer) {
   const items = Array.isArray(order.items) ? order.items : JSON.parse(order.items || '[]')
-  const itemRows = items.map(i => `
+  const itemRows = items.map((item) => `
     <tr>
-      <td style="padding:8px 0;color:#ccc;font-size:14px;">×${i.quantity} ${i.name}</td>
-      <td style="padding:8px 0;color:#888;font-size:14px;text-align:right;">£${(i.price * i.quantity).toFixed(2)}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #ece6d8;color:#1f1f1f;font-size:14px;">
+        <div style="font-weight:600;">${escapeHtml(item.name)}</div>
+        ${item.options && Object.values(item.options).length > 0
+          ? `<div style="color:#6f6a5f;font-size:12px;margin-top:4px;">${escapeHtml(Object.values(item.options).join(', '))}</div>`
+          : ''}
+      </td>
+      <td style="padding:10px 0;border-bottom:1px solid #ece6d8;color:#6f6a5f;font-size:14px;text-align:center;width:64px;">×${item.quantity}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #ece6d8;color:#1f1f1f;font-size:14px;text-align:right;width:96px;">£${(item.price * item.quantity).toFixed(2)}</td>
     </tr>`).join('')
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#0a0a0a;font-family:'Helvetica Neue',sans-serif;">
-  <div style="max-width:520px;margin:40px auto;padding:0 20px;">
-    <div style="text-align:center;margin-bottom:32px;">
-      <div style="font-size:24px;font-weight:600;color:${restaurant.primary_color || '#C9A84C'};margin-bottom:4px;">${restaurant.name}</div>
-      <div style="color:#555;font-size:13px;">Order Confirmation</div>
-    </div>
-    <div style="background:#141414;border:1px solid #222;border-radius:12px;padding:28px;">
-      <div style="text-align:center;margin-bottom:24px;">
-        <div style="width:56px;height:56px;background:${restaurant.primary_color || '#C9A84C'}20;border:2px solid ${restaurant.primary_color || '#C9A84C'}60;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
-          <div style="font-size:24px;">✅</div>
-        </div>
-        <div style="color:#fff;font-size:20px;font-weight:600;margin-bottom:4px;">Order confirmed!</div>
-        <div style="color:#666;font-size:14px;">Hi ${customer.name}, your order is in.</div>
-      </div>
-      <div style="background:#0f0f0f;border-radius:8px;padding:16px;margin-bottom:20px;display:flex;justify-content:space-between;">
-        <div>
-          <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Order number</div>
-          <div style="color:${restaurant.primary_color || '#C9A84C'};font-size:20px;font-weight:700;font-family:monospace;">#${order.order_number}</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Collection time</div>
-          <div style="color:#fff;font-size:18px;font-weight:600;">${order.collection_time}</div>
+<html>
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+  <body style="margin:0;padding:0;background:#f5f1e8;font-family:Arial,'Helvetica Neue',sans-serif;color:#1f1f1f;">
+    <div style="max-width:640px;margin:32px auto;padding:0 18px;">
+      <div style="background:#111111;border-radius:18px 18px 0 0;padding:28px 30px;color:#f7f2e8;">
+        <div style="color:${restaurant.primary_color || '#C9A84C'};font-size:13px;font-weight:700;letter-spacing:0.04em;margin-bottom:10px;">DH CLICK & COLLECT</div>
+        <div style="font-size:30px;line-height:1.1;font-weight:700;margin-bottom:10px;">Order confirmed</div>
+        <div style="color:#d0c8b7;font-size:15px;line-height:1.6;">
+          Hi ${escapeHtml(customer.name || 'there')}, your order with ${escapeHtml(restaurant.name)} has been received and confirmed.
         </div>
       </div>
-      <table style="width:100%;border-collapse:collapse;">
-        ${itemRows}
-        <tr style="border-top:1px solid #1e1e1e;">
-          <td style="padding:12px 0;color:#fff;font-weight:600;">Total paid</td>
-          <td style="padding:12px 0;color:${restaurant.primary_color || '#C9A84C'};font-size:18px;font-weight:600;text-align:right;">£${Number(order.total).toFixed(2)}</td>
-        </tr>
-      </table>
-      ${restaurant.address ? `<div style="margin-top:20px;padding:12px;background:#0f0f0f;border-radius:8px;color:#888;font-size:13px;">📍 ${restaurant.address}</div>` : ''}
+
+      <div style="background:#ffffff;border:1px solid #e8e1d2;border-top:none;border-radius:0 0 18px 18px;padding:28px 30px;">
+        <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          <tr>
+            <td style="padding:0 0 16px 0;">
+              <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Order number</div>
+              <div style="font-size:24px;font-weight:700;color:#1f1f1f;">#${escapeHtml(order.order_number)}</div>
+            </td>
+            <td style="padding:0 0 16px 0;text-align:right;">
+              <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Collect at</div>
+              <div style="font-size:24px;font-weight:700;color:#1f1f1f;">${escapeHtml(order.collection_time)}</div>
+            </td>
+          </tr>
+        </table>
+
+        <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Order items</div>
+        <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:18px;">
+          ${itemRows}
+          <tr>
+            <td colspan="2" style="padding:14px 0 0 0;color:#1f1f1f;font-size:15px;font-weight:700;">Total paid</td>
+            <td style="padding:14px 0 0 0;color:${restaurant.primary_color || '#C9A84C'};font-size:22px;font-weight:700;text-align:right;">£${Number(order.total).toFixed(2)}</td>
+          </tr>
+        </table>
+
+        ${restaurant.address ? `
+          <div style="background:#faf7f0;border:1px solid #ece6d8;border-radius:12px;padding:16px 18px;">
+            <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Collection location</div>
+            <div style="color:#3a3833;font-size:14px;line-height:1.7;">${escapeHtml(restaurant.address)}</div>
+          </div>
+        ` : ''}
+      </div>
     </div>
-    <div style="text-align:center;margin-top:24px;color:#444;font-size:12px;">
-      Powered by <a href="https://dhwebsiteservices.co.uk" style="color:#555;">DH Website Services</a>
-    </div>
-  </div>
-</body></html>`
+  </body>
+</html>`
 }
 
 function newOrderEmail(order, restaurant) {
@@ -996,35 +1008,47 @@ function orderStatusEmail(order, restaurant, customer) {
   }
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#0a0a0a;font-family:'Helvetica Neue',sans-serif;">
-  <div style="max-width:520px;margin:40px auto;padding:0 20px;">
-    <div style="text-align:center;margin-bottom:32px;">
-      <div style="font-size:24px;font-weight:600;color:${restaurant.primary_color || '#C9A84C'};margin-bottom:4px;">${restaurant.name}</div>
-      <div style="color:#555;font-size:13px;">Order status update</div>
-    </div>
-    <div style="background:#141414;border:1px solid #222;border-radius:12px;padding:28px;">
-      <div style="text-align:center;margin-bottom:24px;">
-        <div style="width:56px;height:56px;background:${statusCopy.accent}20;border:2px solid ${statusCopy.accent}50;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
-          <div style="width:12px;height:12px;border-radius:50%;background:${statusCopy.accent};"></div>
-        </div>
-        <div style="color:#fff;font-size:20px;font-weight:600;margin-bottom:4px;">${statusCopy.title}</div>
-        <div style="color:#666;font-size:14px;">Hi ${customer.name || 'there'}, ${statusCopy.message}</div>
-      </div>
-      <div style="background:#0f0f0f;border-radius:8px;padding:16px;margin-bottom:20px;display:flex;justify-content:space-between;">
-        <div>
-          <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Order number</div>
-          <div style="color:${restaurant.primary_color || '#C9A84C'};font-size:20px;font-weight:700;font-family:monospace;">#${order.order_number}</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="color:#666;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Collection time</div>
-          <div style="color:#fff;font-size:18px;font-weight:600;">${order.collection_time || 'TBC'}</div>
+<html>
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+  <body style="margin:0;padding:0;background:#f5f1e8;font-family:Arial,'Helvetica Neue',sans-serif;color:#1f1f1f;">
+    <div style="max-width:640px;margin:32px auto;padding:0 18px;">
+      <div style="background:#111111;border-radius:18px 18px 0 0;padding:28px 30px;color:#f7f2e8;">
+        <div style="color:${statusCopy.accent};font-size:13px;font-weight:700;letter-spacing:0.04em;margin-bottom:10px;">ORDER STATUS UPDATE</div>
+        <div style="font-size:30px;line-height:1.1;font-weight:700;margin-bottom:10px;">${escapeHtml(statusCopy.title)}</div>
+        <div style="color:#d0c8b7;font-size:15px;line-height:1.6;">
+          Hi ${escapeHtml(customer.name || 'there')}, ${escapeHtml(statusCopy.message)}
         </div>
       </div>
-      ${restaurant.address ? `<div style="padding:12px;background:#0f0f0f;border-radius:8px;color:#888;font-size:13px;">📍 ${restaurant.address}</div>` : ''}
+
+      <div style="background:#ffffff;border:1px solid #e8e1d2;border-top:none;border-radius:0 0 18px 18px;padding:28px 30px;">
+        <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          <tr>
+            <td style="padding:0 0 16px 0;">
+              <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Order number</div>
+              <div style="font-size:24px;font-weight:700;color:#1f1f1f;">#${escapeHtml(order.order_number)}</div>
+            </td>
+            <td style="padding:0 0 16px 0;text-align:right;">
+              <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Collection time</div>
+              <div style="font-size:24px;font-weight:700;color:#1f1f1f;">${escapeHtml(order.collection_time || 'TBC')}</div>
+            </td>
+          </tr>
+        </table>
+
+        <div style="background:#faf7f0;border:1px solid #ece6d8;border-radius:12px;padding:16px 18px;margin-bottom:18px;">
+          <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Restaurant</div>
+          <div style="font-size:16px;font-weight:700;color:#1f1f1f;margin-bottom:4px;">${escapeHtml(restaurant.name)}</div>
+          <div style="color:#5f5a50;font-size:14px;line-height:1.7;">
+            ${restaurant.address ? escapeHtml(restaurant.address) : 'Collection location available in the portal.'}
+          </div>
+        </div>
+
+        <div style="border-left:4px solid ${statusCopy.accent};padding:4px 0 4px 14px;color:#3a3833;font-size:14px;line-height:1.7;">
+          Status: <strong>${escapeHtml(statusCopy.title)}</strong>
+        </div>
+      </div>
     </div>
-  </div>
-</body></html>`
+  </body>
+</html>`
 }
 
 function restaurantLoginEmailSubject(restaurant, mode) {
