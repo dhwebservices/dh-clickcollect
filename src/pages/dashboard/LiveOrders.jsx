@@ -21,6 +21,19 @@ export default function LiveOrders() {
   const [connected, setConnected] = useState(false)
   const [busyLoading, setBusyLoading] = useState(false)
   const [filter, setFilter] = useState('active') // active | all
+  const [creatingOrder, setCreatingOrder] = useState(false)
+  const [manualOrderMessage, setManualOrderMessage] = useState('')
+  const [manualOrderError, setManualOrderError] = useState('')
+  const [manualOrder, setManualOrder] = useState({
+    customerName: '',
+    customerEmail: '',
+    customerPhone: '',
+    itemName: 'Manual test order',
+    quantity: 1,
+    total: '12.50',
+    collectionTime: defaultCollectionTime(),
+    notes: 'Admin test order',
+  })
   const channelRef = useRef(null)
   const audioRef = useRef(null)
 
@@ -150,6 +163,84 @@ export default function LiveOrders() {
     }
   }
 
+  async function createManualOrder(event) {
+    event.preventDefault()
+    if (!restaurant?.impersonatedByAdmin) return
+
+    setCreatingOrder(true)
+    setManualOrderError('')
+    setManualOrderMessage('')
+
+    try {
+      if (!manualOrder.customerName.trim()) throw new Error('Customer name is required')
+      if (!manualOrder.collectionTime.trim()) throw new Error('Collection time is required')
+
+      const total = Number(manualOrder.total)
+      const quantity = Math.max(1, Number(manualOrder.quantity) || 1)
+      if (!Number.isFinite(total) || total <= 0) throw new Error('Enter a valid total')
+
+      const orderNumber = await sbRpc('generate_order_number', { p_restaurant_id: restaurant.id })
+      const order = await sbInsert('orders', {
+        restaurant_id: restaurant.id,
+        order_number: orderNumber,
+        customer_name: manualOrder.customerName.trim(),
+        customer_email: manualOrder.customerEmail.trim() || null,
+        customer_phone: manualOrder.customerPhone.trim() || null,
+        items: JSON.stringify([{
+          name: manualOrder.itemName.trim() || 'Manual test order',
+          quantity,
+          price: total / quantity,
+          options: { source: 'Admin manual test' },
+        }]),
+        subtotal: total,
+        commission_amount: total * (Number(restaurant.commission_rate || 0) / 100),
+        total,
+        collection_time: manualOrder.collectionTime.trim(),
+        collection_date: today,
+        status: 'pending',
+        payment_method: 'manual',
+        payment_status: 'paid',
+        notes: manualOrder.notes.trim() || null,
+      })
+
+      setOrders((prev) => [order, ...prev])
+      playNotification()
+
+      if (import.meta.env.VITE_WORKER_URL) {
+        fetch(`${import.meta.env.VITE_WORKER_URL}/notify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'order_confirmation',
+            order,
+            restaurant,
+            customer: {
+              name: manualOrder.customerName.trim(),
+              email: manualOrder.customerEmail.trim() || null,
+              phone: manualOrder.customerPhone.trim() || null,
+            },
+          }),
+        }).catch(() => {})
+      }
+
+      setManualOrderMessage(`Manual order #${order.order_number} created.`)
+      setManualOrder({
+        customerName: '',
+        customerEmail: '',
+        customerPhone: '',
+        itemName: 'Manual test order',
+        quantity: 1,
+        total: '12.50',
+        collectionTime: defaultCollectionTime(),
+        notes: 'Admin test order',
+      })
+    } catch (err) {
+      setManualOrderError(err.message || 'Could not create manual order')
+    } finally {
+      setCreatingOrder(false)
+    }
+  }
+
   const visibleOrders = filter === 'active'
     ? orders.filter(o => !['collected', 'rejected'].includes(o.status))
     : orders
@@ -232,6 +323,59 @@ export default function LiveOrders() {
         ))}
       </div>
 
+      {restaurant?.impersonatedByAdmin ? (
+        <div style={{
+          background: '#141414',
+          border: '1px solid #1e1e1e',
+          borderRadius: 12,
+          padding: 18,
+          marginBottom: 20,
+          display: 'grid',
+          gap: 14,
+        }}>
+          <div>
+            <div style={{ color: '#C9A84C', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", marginBottom: 8 }}>ADMIN TESTING</div>
+            <div style={{ color: '#fff', fontSize: 17, fontWeight: 600 }}>Add manual order</div>
+            <div style={{ color: '#666', fontSize: 13, marginTop: 6 }}>Creates a live pending order here and triggers the normal confirmation notification flow.</div>
+          </div>
+
+          {manualOrderError ? <InlineBanner tone="danger" message={manualOrderError} /> : null}
+          {manualOrderMessage ? <InlineBanner tone="success" message={manualOrderMessage} /> : null}
+
+          <form onSubmit={createManualOrder} style={{ display: 'grid', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+              <input value={manualOrder.customerName} onChange={(e) => setManualOrder((current) => ({ ...current, customerName: e.target.value }))} style={adminInput} placeholder="Customer name" />
+              <input value={manualOrder.customerEmail} onChange={(e) => setManualOrder((current) => ({ ...current, customerEmail: e.target.value }))} style={adminInput} placeholder="Customer email" />
+              <input value={manualOrder.customerPhone} onChange={(e) => setManualOrder((current) => ({ ...current, customerPhone: e.target.value }))} style={adminInput} placeholder="Customer phone" />
+              <input value={manualOrder.itemName} onChange={(e) => setManualOrder((current) => ({ ...current, itemName: e.target.value }))} style={adminInput} placeholder="Item" />
+              <input type="number" min="1" value={manualOrder.quantity} onChange={(e) => setManualOrder((current) => ({ ...current, quantity: Number(e.target.value) || 1 }))} style={adminInput} placeholder="Qty" />
+              <input type="number" min="0.01" step="0.01" value={manualOrder.total} onChange={(e) => setManualOrder((current) => ({ ...current, total: e.target.value }))} style={adminInput} placeholder="Total" />
+              <input value={manualOrder.collectionTime} onChange={(e) => setManualOrder((current) => ({ ...current, collectionTime: e.target.value }))} style={adminInput} placeholder="Collection time" />
+              <input value={manualOrder.notes} onChange={(e) => setManualOrder((current) => ({ ...current, notes: e.target.value }))} style={{ ...adminInput, gridColumn: 'span 2' }} placeholder="Notes" />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="submit"
+                disabled={creatingOrder}
+                style={{
+                  background: '#C9A84C',
+                  color: '#0a0a0a',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '10px 14px',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: creatingOrder ? 'not-allowed' : 'pointer',
+                  fontFamily: "'Outfit', sans-serif"
+                }}
+              >
+                {creatingOrder ? 'Creating...' : 'Add manual order'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
       {/* Orders grid */}
       {visibleOrders.length === 0 ? (
         <div style={{
@@ -259,6 +403,36 @@ export default function LiveOrders() {
       )}
     </div>
   )
+}
+
+function defaultCollectionTime() {
+  const next = new Date(Date.now() + 30 * 60000)
+  return `${String(next.getHours()).padStart(2, '0')}:${String(next.getMinutes()).padStart(2, '0')}`
+}
+
+function InlineBanner({ tone, message }) {
+  const styles = tone === 'success'
+    ? { background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac' }
+    : { background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5' }
+
+  return (
+    <div style={{ ...styles, borderRadius: 10, padding: '11px 14px', fontSize: 13, display: 'flex', gap: 8, alignItems: 'center' }}>
+      <AlertCircle size={14} />
+      <span>{message}</span>
+    </div>
+  )
+}
+
+const adminInput = {
+  width: '100%',
+  background: '#0f0f0f',
+  border: '1px solid #2a2a2a',
+  borderRadius: 8,
+  padding: '10px 12px',
+  color: '#fff',
+  fontSize: 13,
+  boxSizing: 'border-box',
+  fontFamily: "'Outfit', sans-serif"
 }
 
 function OrderCard({ order, onUpdateStatus, primaryColor }) {
