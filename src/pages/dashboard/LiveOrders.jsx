@@ -198,7 +198,7 @@ export default function LiveOrders() {
         collection_time: manualOrder.collectionTime.trim(),
         collection_date: today,
         status: 'pending',
-        payment_method: 'manual',
+        payment_method: 'pay_on_collection',
         payment_status: 'paid',
         notes: manualOrder.notes.trim() || null,
       })

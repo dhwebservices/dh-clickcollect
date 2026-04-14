@@ -90,7 +90,7 @@ export default function AdminOrders() {
         collection_time: form.collectionTime.trim(),
         collection_date: form.collectionDate,
         status: 'pending',
-        payment_method: 'manual',
+        payment_method: 'pay_on_collection',
         payment_status: form.paymentStatus,
         notes: form.notes.trim() || null,
       })
