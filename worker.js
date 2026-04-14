@@ -866,19 +866,81 @@ function orderConfirmationEmail(order, restaurant, customer) {
 
 function newOrderEmail(order, restaurant) {
   const items = Array.isArray(order.items) ? order.items : JSON.parse(order.items || '[]')
-  const itemList = items.map(i => `×${i.quantity} ${i.name}`).join('<br>')
+  const itemRows = items.map((item) => `
+    <tr>
+      <td style="padding:10px 0;border-bottom:1px solid #ece6d8;color:#1f1f1f;font-size:14px;">
+        <div style="font-weight:600;">${escapeHtml(item.name)}</div>
+        ${item.options && Object.values(item.options).length > 0
+          ? `<div style="color:#6f6a5f;font-size:12px;margin-top:4px;">${escapeHtml(Object.values(item.options).join(', '))}</div>`
+          : ''}
+      </td>
+      <td style="padding:10px 0;border-bottom:1px solid #ece6d8;color:#6f6a5f;font-size:14px;text-align:center;width:64px;">×${item.quantity}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #ece6d8;color:#1f1f1f;font-size:14px;text-align:right;width:96px;">£${(item.price * item.quantity).toFixed(2)}</td>
+    </tr>
+  `).join('')
+
   return `<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#0a0a0a;font-family:'Helvetica Neue',sans-serif;">
-  <div style="max-width:480px;margin:40px auto;padding:0 20px;">
-    <div style="background:#141414;border:1px solid #f59e0b40;border-radius:12px;padding:24px;">
-      <div style="color:#f59e0b;font-size:18px;font-weight:600;margin-bottom:16px;">🔔 New order — #${order.order_number}</div>
-      <div style="color:#ccc;font-size:15px;margin-bottom:8px;"><strong style="color:#fff">${order.customer_name}</strong> — collect at <strong style="color:#fff">${order.collection_time}</strong></div>
-      <div style="color:#aaa;font-size:14px;margin-bottom:16px;line-height:1.8;">${itemList}</div>
-      <div style="color:#C9A84C;font-size:18px;font-weight:600;">Total: £${Number(order.total).toFixed(2)}</div>
-      ${order.notes ? `<div style="margin-top:12px;padding:10px;background:#1a1a1a;border-radius:6px;color:#888;font-size:13px;">Note: ${order.notes}</div>` : ''}
+<html>
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+  <body style="margin:0;padding:0;background:#f5f1e8;font-family:Arial,'Helvetica Neue',sans-serif;color:#1f1f1f;">
+    <div style="max-width:640px;margin:32px auto;padding:0 18px;">
+      <div style="background:#111111;border-radius:18px 18px 0 0;padding:28px 30px;color:#f7f2e8;">
+        <div style="color:${restaurant.primary_color || '#C9A84C'};font-size:13px;font-weight:700;letter-spacing:0.04em;margin-bottom:10px;">DH CLICK & COLLECT</div>
+        <div style="font-size:30px;line-height:1.1;font-weight:700;margin-bottom:10px;">New order received</div>
+        <div style="color:#d0c8b7;font-size:15px;line-height:1.6;">
+          ${escapeHtml(restaurant.name)} has a new click and collect order that needs action.
+        </div>
+      </div>
+
+      <div style="background:#ffffff;border:1px solid #e8e1d2;border-top:none;border-radius:0 0 18px 18px;padding:28px 30px;">
+        <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          <tr>
+            <td style="padding:0 0 16px 0;">
+              <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Order number</div>
+              <div style="font-size:24px;font-weight:700;color:#1f1f1f;">#${escapeHtml(order.order_number)}</div>
+            </td>
+            <td style="padding:0 0 16px 0;text-align:right;">
+              <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Collect at</div>
+              <div style="font-size:24px;font-weight:700;color:#1f1f1f;">${escapeHtml(order.collection_time)}</div>
+            </td>
+          </tr>
+        </table>
+
+        <div style="display:block;background:#faf7f0;border:1px solid #ece6d8;border-radius:12px;padding:16px 18px;margin-bottom:18px;">
+          <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Customer</div>
+          <div style="font-size:16px;font-weight:700;color:#1f1f1f;margin-bottom:4px;">${escapeHtml(order.customer_name)}</div>
+          <div style="color:#5f5a50;font-size:14px;line-height:1.6;">
+            ${order.customer_phone ? `Phone: ${escapeHtml(order.customer_phone)}<br>` : ''}
+            ${order.customer_email ? `Email: ${escapeHtml(order.customer_email)}` : ''}
+          </div>
+        </div>
+
+        <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Order items</div>
+        <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:18px;">
+          ${itemRows}
+          <tr>
+            <td colspan="2" style="padding:14px 0 0 0;color:#1f1f1f;font-size:15px;font-weight:700;">Total</td>
+            <td style="padding:14px 0 0 0;color:${restaurant.primary_color || '#C9A84C'};font-size:22px;font-weight:700;text-align:right;">£${Number(order.total).toFixed(2)}</td>
+          </tr>
+        </table>
+
+        ${order.notes ? `
+          <div style="background:#faf7f0;border:1px solid #ece6d8;border-radius:12px;padding:16px 18px;margin-bottom:18px;">
+            <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Order notes</div>
+            <div style="color:#3a3833;font-size:14px;line-height:1.7;">${escapeHtml(order.notes)}</div>
+          </div>
+        ` : ''}
+
+        ${restaurant.address ? `
+          <div style="background:#faf7f0;border:1px solid #ece6d8;border-radius:12px;padding:16px 18px;">
+            <div style="color:#7a7367;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Collection location</div>
+            <div style="color:#3a3833;font-size:14px;line-height:1.7;">${escapeHtml(restaurant.address)}</div>
+          </div>
+        ` : ''}
+      </div>
     </div>
-  </div>
-</body></html>`
+  </body>
+</html>`
 }
 
 function orderStatusEmailSubject(order, restaurant) {
